@@ -1,0 +1,62 @@
+struct PointLight
+{
+	float4 pos;	
+	float4 color;
+};
+
+Texture2D<float4> diffuse : register(t0);
+Texture2D<float4> normal : register(t1);
+Texture2D<float4> wpos : register(t2);
+Texture2D<float> depthTex : register(t3);
+
+float3 PointLightCalc(float4 surfacePos, float4 surfaceNormal, float4 surfaceDiffuse, PointLight L)
+{
+	float3 litColor = float3(0.0f, 0.0f, 0.0f);
+	
+	// The vector from the surface to the light.
+	float3 lightVec = L.pos.xyz - surfacePos.xyz;
+		
+	// The distance from surface to light.
+	float d = length(lightVec);
+	
+	if( d > L.pos.w )
+		return float3(0.0f, 0.0f, 0.0f);
+		
+	// Normalize the light vector.
+	lightVec = normalize(lightVec); 
+	
+	// Add the ambient light term.
+	litColor += surfaceDiffuse.xyz * L.color.xyz * 0.1;	
+	
+	float diffuseFactor = dot(lightVec, surfaceNormal.xyz);
+	if(diffuseFactor > 0.0)
+		litColor +=  diffuseFactor * surfaceDiffuse.xyz * L.color.xyz;
+
+	return litColor * (1.0 - (d/L.pos.w));
+
+	/* 
+	//Add diffuse and specular term, provided the surface is in the line of site of the light.
+	float diffuseFactor = dot(lightVec, surfaceNormal.xyz);
+	if( diffuseFactor > 0.0f )
+	{	//max(spec.a, 1.0f);
+		float specPower  = 2.0f;
+		float3 toEye     = normalize(camPos.xyz - v.pos);
+		float3 R         = reflect(-lightVec, v.normal);
+		float specFactor = pow(max(dot(R, toEye), 0.0f), specPower);
+	
+		// diffuse and specular terms
+		litColor +=  diffuseFactor * v.diffuse * L.diffuse.xyz;
+		litColor +=  specFactor * v.spec * L.specular.xyz;
+	}
+	*/
+}
+
+float4 main(float4 position : SV_POSITION) : SV_TARGET
+{
+	int3 screenPos = int3(position.xy, 0);
+	float4 diff = diffuse.Load(screenPos);
+	float4 norm = normal.Load(screenPos);
+	float4 pos = wpos.Load(screenPos);
+
+   	return diff;
+}
