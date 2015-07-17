@@ -52,6 +52,11 @@ Mesh::~Mesh()
 {
 	indexBuffer->Release();
 	vertexBuffer->Release();
+	
+	for (auto mat : materialMap)
+	{
+		delete mat.second.diffuse;
+	}
 }
 
 void Mesh::Apply()
@@ -70,8 +75,9 @@ void Mesh::DrawIndexed()
 		
 		context->DrawIndexed(mg.numIndices, mg.startIndex, 0);
 	}
-	//context->DrawIndexed(numIndices, 0, 0);
-
 }
 
-
+void Mesh::Draw()
+{
+	context->DrawIndexed(numIndices, 0, 0);
+}

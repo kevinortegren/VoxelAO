@@ -34,6 +34,7 @@ public:
 	void Apply();
 
 	void DrawIndexed();
+	void Draw();
 
 private:
 	ID3D11Buffer* vertexBuffer;

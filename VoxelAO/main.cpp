@@ -47,12 +47,27 @@ ID3D11PixelShader* PS;
 ID3D11VertexShader* fsqVS;
 ID3D11PixelShader* fsqPS;
 
+ID3D11VertexShader* voxelVS;
+ID3D11GeometryShader* voxelGS;
+ID3D11PixelShader* voxelPS;
+
 ID3D11Buffer* camConstBuffer;
+ID3D11Buffer* voxelStructure;
+ID3D11Buffer* voxelStagingStructure;
+ID3D11Buffer* voxelMatBuffer;
+
+RenderTarget voxelVoidRT;
+
+ID3D11BlendState* voxelBlendState;
+
+ID3D11UnorderedAccessView* voxelUAV;
 
 ID3D11ShaderResourceView* depthBufferView;
 
 ID3D11InputLayout *layout;
 ID3D11InputLayout *fsqlayout;
+ID3D11InputLayout *voxelLayout;
+
 
 ID3D11SamplerState* linearSamplerState;
 
@@ -66,14 +81,16 @@ Mesh* mesh;
 
 SDL_Window* window;
 
+//Voxel matrix
+Matrix voxelMatrix;
+Matrix voxelViewProjMatrix[3];
+
 //DXTK
 DirectX::PrimitiveBatch<DirectX::VertexPositionColor>* primitiveBatch;
 DirectX::BasicEffect* basicEffect;
 ID3D11InputLayout* basicInputLayout;
 
 D3D11Timer* timer;
-
-
 
 #undef main
 bool HandleEvents();
@@ -95,7 +112,7 @@ int main(int argc, char* argv[])
 
 	IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG | IMG_INIT_TIF);
 
-	window = SDL_CreateWindow("Clustered Prototype", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE );
+	window = SDL_CreateWindow("VoxelAO", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE );
 
 	//Must init info struct with SDL version info, see documentation for explanation
 	SDL_VERSION(&info.version);
@@ -116,7 +133,8 @@ int main(int argc, char* argv[])
 	timer = new D3D11Timer(device, context);
 
 	{
-		ID3DBlob* vsblob,* psblob;
+		ID3DBlob* vsblob,* psblob, *gsblob;
+		ID3DBlob* errblob = nullptr;
 		UINT flags = 0;
 
 #ifndef _DEBUG // IF NOT DEBUG
@@ -153,12 +171,41 @@ int main(int argc, char* argv[])
 		};
 
 		CHECKDX(device->CreateInputLayout(iedfsq, 1, vsblob->GetBufferPointer(), vsblob->GetBufferSize(), &fsqlayout));
+
+		//Create voxelizer shaders
+		CHECKDX(D3DCompileFromFile(L"../Assets/Shaders/voxelizing.vertex", nullptr, nullptr, "main", "vs_5_0", flags, 0, &vsblob, &errblob));
+		if (errblob)
+			std::cout << (char*)errblob->GetBufferPointer() << std::endl;
+		CHECKDX(D3DCompileFromFile(L"../Assets/Shaders/voxelizing.geometry", nullptr, nullptr, "main", "gs_5_0", flags, 0, &gsblob, &errblob));
+		if (errblob)
+			std::cout << (char*)errblob->GetBufferPointer() << std::endl;
+		CHECKDX(D3DCompileFromFile(L"../Assets/Shaders/voxelizing.pixel", nullptr, nullptr, "main", "ps_5_0", flags, 0, &psblob, &errblob));
+		if (errblob)
+			std::cout << (char*)errblob->GetBufferPointer() << std::endl;
+
+		CHECKDX(device->CreateVertexShader(vsblob->GetBufferPointer(), vsblob->GetBufferSize(), nullptr, &voxelVS));
+		CHECKDX(device->CreateGeometryShader(gsblob->GetBufferPointer(), gsblob->GetBufferSize(), nullptr, &voxelGS));
+		CHECKDX(device->CreatePixelShader(psblob->GetBufferPointer(), psblob->GetBufferSize(), nullptr, &voxelPS));
+
+		D3D11_INPUT_ELEMENT_DESC iedvox[] =
+		{
+			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+			{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 }
+		};
+
+		CHECKDX(device->CreateInputLayout(ied, 3, vsblob->GetBufferPointer(), vsblob->GetBufferSize(), &voxelLayout));
+
+		vsblob->Release();
+		gsblob->Release();
+		psblob->Release();
+
 	}
 
 	{
 		OBJLoader objLoader;
 
-		mesh = objLoader.LoadOBJ("../Assets/Models/sponza.obj");
+		mesh = objLoader.LoadOBJ("../Assets/Models/sphere.obj");
 	}
 
 	//Camera 
@@ -168,7 +215,7 @@ int main(int argc, char* argv[])
 
 	{
 		//Init primitive spritebatch from DirectXTK
-		primitiveBatch = new DirectX::PrimitiveBatch<DirectX::VertexPositionColor>(context);
+		primitiveBatch = new DirectX::PrimitiveBatch<DirectX::VertexPositionColor>(context, 65536, (size_t)(65536/3));
 		basicEffect = new DirectX::BasicEffect(device);
 	
 		basicEffect->SetProjection(XMLoadFloat4x4(&camera.GetCamData().projMat));
@@ -222,9 +269,69 @@ int main(int argc, char* argv[])
 		CHECKDX(device->CreateRasterizerState(&RSdesc, &RSStateWireframe));
 	}
 
+	//Init voxel stuff
+	{
+		voxelMatrix = Matrix::CreateOrthographic(1024.0f, 1024.0f, 0.0f, 1024.0f);
+		voxelViewProjMatrix[0] = Matrix::CreateLookAt(Vector3(-512, 0, 0), Vector3(0, 0, 0), Vector3(0, 1, 0)) * voxelMatrix;
+		voxelViewProjMatrix[1] = Matrix::CreateLookAt(Vector3(0, -512, 0), Vector3(0, 0, 0), Vector3(1, 0, 0)) * voxelMatrix;
+		voxelViewProjMatrix[2] = Matrix::CreateLookAt(Vector3(0, 0, -512), Vector3(0, 0, 0), Vector3(0, 1, 0)) * voxelMatrix;
+
+		D3D11_BUFFER_DESC voxmatbuffdesc;
+		voxmatbuffdesc.ByteWidth = 3 * sizeof(Matrix);
+		voxmatbuffdesc.Usage = D3D11_USAGE_IMMUTABLE;
+		voxmatbuffdesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		voxmatbuffdesc.CPUAccessFlags = 0;
+		voxmatbuffdesc.MiscFlags = 0;
+		voxmatbuffdesc.StructureByteStride = 0;
+
+		D3D11_SUBRESOURCE_DATA voxmatdata;
+		voxmatdata.pSysMem = &voxelViewProjMatrix[0];
+		voxmatdata.SysMemPitch = 3 * sizeof(Matrix);
+		voxmatdata.SysMemSlicePitch = 0;
+
+		CHECKDX(device->CreateBuffer(&voxmatbuffdesc, &voxmatdata, &voxelMatBuffer));
+
+
+		D3D11_BUFFER_DESC cbDesc;
+		cbDesc.ByteWidth = 128*128*128*sizeof(uint32_t);
+		cbDesc.Usage = D3D11_USAGE_DEFAULT;
+		cbDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+		cbDesc.CPUAccessFlags = 0;
+		cbDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
+		cbDesc.StructureByteStride = 0;
+
+		CHECKDX(device->CreateBuffer(&cbDesc, nullptr, &voxelStructure));
+
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc;
+		uavDesc.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
+		uavDesc.Buffer.FirstElement = 0;
+		uavDesc.Buffer.NumElements = 128 * 128 * 128;
+		uavDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+
+		CHECKDX(device->CreateUnorderedAccessView(voxelStructure, &uavDesc, &voxelUAV));
+
+		D3D11_BUFFER_DESC voxelStagingDesc;
+		voxelStagingDesc.ByteWidth = 128 * 128 * 128 * sizeof(uint32_t);
+		voxelStagingDesc.Usage = D3D11_USAGE_STAGING;
+		voxelStagingDesc.BindFlags = 0;
+		voxelStagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+		voxelStagingDesc.MiscFlags = 0;
+		voxelStagingDesc.StructureByteStride = 0;
+
+		CHECKDX(device->CreateBuffer(&voxelStagingDesc, nullptr, &voxelStagingStructure));
+
+		voxelVoidRT.CreateRenderTarget(128, 128, DXGI_FORMAT_R8G8_UNORM);
+
+		D3D11_BLEND_DESC blendDesc = { 0 };
+
+		CHECKDX(device->CreateBlendState(&blendDesc, &voxelBlendState));
+
+	}
+
 	//Set states, these are static states for the moment
 	context->RSSetState(RSStateSolid);
-	
+
 	//RenderTarget clear color
 	float clearColor[] = { 1.0f, 1.0f, 0.0f, 1.0f };
 
@@ -265,6 +372,47 @@ int main(int argc, char* argv[])
 		memcpy(camResource.pData, &camera.GetCamData(), sizeof(CameraData));
 		context->Unmap(camConstBuffer, 0);
 
+		//Voxelize
+		ID3D11RenderTargetView* RT = voxelVoidRT.GetRenderTargetView();
+		context->OMSetRenderTargetsAndUnorderedAccessViews(1, &RT, 0, 1, 1, &voxelUAV, nullptr);
+		context->OMSetBlendState(voxelBlendState, nullptr, 0xffffffff);
+		context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+		D3D11_VIEWPORT voxviewPort;
+		ZeroMemory(&voxviewPort, sizeof(D3D11_VIEWPORT));
+
+		voxviewPort.TopLeftX = 0;
+		voxviewPort.TopLeftY = 0;
+		voxviewPort.MinDepth = 0.0f;
+		voxviewPort.MaxDepth = 1.0f;
+		voxviewPort.Width = 128;
+		voxviewPort.Height = 128;
+
+		context->RSSetViewports(1, &voxviewPort);
+
+		context->VSSetShader(voxelVS, 0, 0);
+		context->GSSetShader(voxelGS, 0, 0);
+		context->PSSetShader(voxelPS, 0, 0);
+		context->IASetInputLayout(voxelLayout);
+		context->GSSetConstantBuffers(0, 1, &voxelMatBuffer);
+		context->RSSetState(RSStateSolid);
+
+		timer->Start();
+		mesh->Apply();
+		mesh->Draw();
+		timer->Stop();
+
+		context->CopyResource(voxelStagingStructure, voxelStructure);
+
+		uint32_t* voxelCPUstructure = new uint32_t[128 * 128 * 128];
+
+		D3D11_MAPPED_SUBRESOURCE mapData;
+		if (context->Map(voxelStagingStructure, 0, D3D11_MAP_READ, 0, &mapData) == S_OK)
+		{
+			memcpy(voxelCPUstructure, mapData.pData, 128 * 128 * 128 * sizeof(uint32_t));
+			context->Unmap(voxelStagingStructure, 0);
+		}
+
 
 		//Clear RTs before drawing
 		colorRT.Clear();
@@ -277,17 +425,31 @@ int main(int argc, char* argv[])
 		ID3D11RenderTargetView* RTs[] = {colorRT.GetRenderTargetView(), normalRT.GetRenderTargetView(), positionRT.GetRenderTargetView()};
 		ID3D11RenderTargetView* RTzero[] = { 0, 0, 0 };
 		context->OMSetRenderTargets(3, RTs, depthStencilView);
-
-		context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		context->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+		
+		
 		//Set shaders
+		D3D11_VIEWPORT viewPort;
+		ZeroMemory(&viewPort, sizeof(D3D11_VIEWPORT));
+
+		viewPort.TopLeftX = 0;
+		viewPort.TopLeftY = 0;
+		viewPort.MinDepth = 0.0f;
+		viewPort.MaxDepth = 1.0f;
+		viewPort.Width = WINDOW_WIDTH;
+		viewPort.Height = WINDOW_HEIGHT;
+
+		context->RSSetViewports(1, &viewPort);
+
 		context->VSSetShader(VS, 0, 0);
+		context->GSSetShader(nullptr, 0, 0);
 		context->PSSetShader(PS, 0, 0);
 		context->IASetInputLayout(layout);
 		context->PSSetSamplers(0, 1, &linearSamplerState);
 		context->VSSetConstantBuffers(0, 1, &camConstBuffer);
 		context->RSSetState(RSStateSolid);
 		
-		timer->Start();
+		
 		//Draw geometry
 		mesh->Apply();
 		mesh->DrawIndexed();
@@ -321,31 +483,65 @@ int main(int argc, char* argv[])
 
 		
 		context->DrawInstanced(3, 1, 0, 0);
-		timer->Stop();
+		
 
 		double gpuTime = timer->GetTime();
 
 		std::string outstr = "LA: " + std::to_string(interval) + "Shading time: " + std::to_string(gpuTime);
 		SDL_SetWindowTitle(window, outstr.c_str());
 
+		ID3D11ShaderResourceView* SRVzero[] = { 0 };
+		context->PSSetShaderResources(3, 1, SRVzero);
+
 		////////DRAW LINES//////
 		//Set depth
 		context->OMSetRenderTargets(1, &backBuffer, depthStencilView);
 
-		//basicEffect->SetView(XMLoadFloat4x4(&camera.GetCamData().viewMat));
-		//basicEffect->Apply(context);
-		//context->IASetInputLayout(basicInputLayout);
+		basicEffect->SetView(XMLoadFloat4x4(&camera.GetCamData().viewMat));
+		basicEffect->Apply(context);
+		context->IASetInputLayout(basicInputLayout);
 		
+		float chunkSize = 8.0f;
+		
+
+		primitiveBatch->Begin();
+		
+		uint32_t voxelCounter = 0;
+		for (uint32_t i = 0; i < 128 * 128 * 128; ++i)
+		{
+			if (voxelCPUstructure[i] == 1)
+			{
+				++voxelCounter;
+
+				uint32_t x = i % 128;
+				uint32_t y = (i / 128) % 128;
+				uint32_t z = i / (128 * 128);
+				Vector3 ntl = Vector3((x - 64) * 8, (y - 64) * 8, (z - 64) * 8);
+				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, 0, chunkSize), Vector4(1, 0, 0, 0)));
+				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, 0), Vector4(1, 0, 0, 0)));
+				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, 0), Vector4(1, 0, 0, 0)));
+				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, chunkSize), Vector4(1, 0, 0, 0)));
+				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, 0), Vector4(1, 0, 0, 0)));
+				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, 0), Vector4(1, 0, 0, 0)));
+				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)));
+				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)));
+				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, 0, chunkSize), Vector4(1, 0, 0, 0)));
+				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(0, 0, chunkSize), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, chunkSize), Vector4(1, 0, 0, 0)));
+				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)));
+				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, chunkSize), Vector4(1, 0, 0, 0)));
+			}
+		}
+
+		std::cout << voxelCounter << std::endl;
+		primitiveBatch->End();
+
 		swapChain->Present(0, 0);
 
-		ID3D11ShaderResourceView* SRVzero[] = { 0 };
 		context->PSSetShaderResources(0, 1, SRVzero);
 		context->PSSetShaderResources(1, 1, SRVzero);
 		context->PSSetShaderResources(2, 1, SRVzero);
-		context->PSSetShaderResources(3, 1, SRVzero);
-		context->PSSetShaderResources(4, 1, SRVzero);
-		context->PSSetShaderResources(5, 1, SRVzero);
-		context->PSSetShaderResources(6, 1, SRVzero);
+
+		delete[] voxelCPUstructure;
 	}
 
 	std::cout << "Exiting program!" << std::endl;
@@ -358,15 +554,23 @@ int main(int argc, char* argv[])
 	depthStencilView->Release();
 	RSStateSolid->Release();
 	RSStateWireframe->Release();
+	voxelBlendState->Release();
 	fsqVS->Release();
 	fsqPS->Release();
 	camConstBuffer->Release();
 	depthBufferView->Release();
 	layout->Release();
 	fsqlayout->Release();
+	voxelLayout->Release();
 	linearSamplerState->Release();
 	VS->Release();
 	PS->Release();
+	voxelVS->Release();
+	voxelGS->Release();
+	voxelPS->Release();
+	voxelStructure->Release();
+	voxelUAV->Release();
+	voxelMatBuffer->Release();
 	swapChain->Release();
 	backBuffer->Release();
 	device->Release();
@@ -487,15 +691,5 @@ void InitD3D(HWND winHandle)
 	normalRT.CreateRenderTarget(WINDOW_WIDTH, WINDOW_HEIGHT, DXGI_FORMAT_R16G16B16A16_FLOAT);
 	positionRT.CreateRenderTarget(WINDOW_WIDTH, WINDOW_HEIGHT, DXGI_FORMAT_R16G16B16A16_FLOAT);
 
-	D3D11_VIEWPORT viewPort;
-	ZeroMemory(&viewPort, sizeof(D3D11_VIEWPORT));
-
-	viewPort.TopLeftX = 0;
-	viewPort.TopLeftY = 0;
-	viewPort.MinDepth = 0.0f;
-	viewPort.MaxDepth = 1.0f;
-	viewPort.Width = WINDOW_WIDTH;
-	viewPort.Height = WINDOW_HEIGHT;
-
-	context->RSSetViewports(1, &viewPort);
+	
 }

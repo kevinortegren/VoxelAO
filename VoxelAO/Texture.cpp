@@ -11,7 +11,8 @@ Texture::Texture()
 
 Texture::~Texture()
 {
-	textureRSV->Release();
+	if (textureRSV)
+		textureRSV->Release();
 }
 
 void Texture::CreateTextureFromFile(const char* file)

@@ -1,0 +1,67 @@
+cbuffer voxelMats : register(b0)
+{
+	matrix gridViewProjMatrices[3];
+};
+
+struct VS_Output
+{
+	float3 pos : POSITION;
+	float3 normal : NORMAL;
+};
+
+struct GS_Output
+{
+	float4 position : SV_POSITION;
+	float3 positionWS : WORLD_POS;
+};
+
+static const float3 viewDirections[3] =
+{ 
+  float3(0.0f, 0.0f, -1.0f), // back to front
+  float3(-1.0f, 0.0f, 0.0f), // right to left
+  float3(0.0f, -1.0f, 0.0f)  // top to down 
+}; 
+
+uint GetViewIndex(in float3 normal)
+{
+	float3x3 directionMatrix;
+	directionMatrix[0] = -viewDirections[0];
+	directionMatrix[1] = -viewDirections[1];
+	directionMatrix[2] = -viewDirections[2];
+	float3 dotProducts = abs(mul(directionMatrix, normal));
+	float maximum = max(max(dotProducts.x, dotProducts.y), dotProducts.z);
+	
+	return (maximum == dotProducts.x) ? 0 : ((maximum == dotProducts.y) ? 1 : 2);
+}
+
+[maxvertexcount(3)]
+void main(triangle VS_Output input[3], inout TriangleStream<GS_Output> outputStream)
+{
+	float3 faceNormal = normalize(input[0].normal + input[1].normal + input[2].normal);
+
+	uint viewIndex = GetViewIndex(faceNormal);
+
+	GS_Output output[3];
+	[unroll]
+	for(uint i = 0; i < 3; ++i)
+	{
+		output[i].position = mul(gridViewProjMatrices[viewIndex], float4(input[i].pos, 1.0f)); 
+		output[i].positionWS = input[i].pos; // position in world space
+	}
+
+	// Bloat triangle in normalized device space with the texel size of the currently bound 
+	// render-target. In this way pixels, which would have been discarded due to the low 
+	// resolution of the currently bound render-target, will still be rasterized. 
+	float2 side0N = normalize(output[1].position.xy - output[0].position.xy);
+	float2 side1N = normalize(output[2].position.xy - output[1].position.xy);
+	float2 side2N = normalize(output[0].position.xy - output[2].position.xy);
+
+	const float texelSize = 1.0f / 128.0f; 
+	output[0].position.xy += normalize(-side0N + side2N) * texelSize;
+	output[1].position.xy += normalize(side0N - side1N) * texelSize;
+	output[2].position.xy += normalize(side1N - side2N) * texelSize;
+
+	[unroll]
+	for(i = 0; i < 3; ++i)
+		outputStream.Append(output[i]);
+}

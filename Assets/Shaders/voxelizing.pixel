@@ -1,0 +1,31 @@
+RWByteAddressBuffer gridBuffer: register(u1);
+
+struct GS_Output
+{
+	float4 position: SV_POSITION;
+	float3 positionWS: WORLD_POS;
+};
+
+void main(GS_Output input) 
+{
+	// get offset into the voxel-grid
+	float3 offset = (input.positionWS - float3(0,0,0)) / (1024.0f/128.0f);
+
+	offset = round(offset);
+
+	// get position in the voxel-grid
+	int3 voxelPos = int3(64, 64, 64) + int3(offset.x, offset.y, offset.z);
+
+	if((voxelPos.x > -1) && (voxelPos.x < 128) && (voxelPos.y > -1) && (voxelPos.y < 128) && (voxelPos.z > -1) && (voxelPos.z < 128))
+	{
+		// get index into the voxel-grid
+		uint gridIndex = (voxelPos.x + 128 * voxelPos.y + 128 * 128 * voxelPos.z) * 4;
+
+		uint bitMask = 1;
+
+		// output color/ occlusion
+		gridBuffer.InterlockedMax(gridIndex, bitMask);
+	}
+}
+
+
