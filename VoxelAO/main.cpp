@@ -55,6 +55,7 @@ ID3D11Buffer* camConstBuffer;
 ID3D11Buffer* voxelStructure;
 ID3D11Buffer* voxelStagingStructure;
 ID3D11Buffer* voxelMatBuffer;
+ID3D11Buffer* voxelClearBuffer;
 
 RenderTarget voxelVoidRT;
 
@@ -205,7 +206,7 @@ int main(int argc, char* argv[])
 	{
 		OBJLoader objLoader;
 
-		mesh = objLoader.LoadOBJ("../Assets/Models/sphere.obj");
+		mesh = objLoader.LoadOBJ("../Assets/Models/sponza.obj");
 	}
 
 	//Camera 
@@ -261,7 +262,7 @@ int main(int argc, char* argv[])
 		ZeroMemory(&RSdesc, sizeof(RSdesc));
 		RSdesc.FillMode = D3D11_FILL_SOLID;
 		RSdesc.CullMode = D3D11_CULL_NONE;
-		RSdesc.DepthClipEnable = TRUE;
+		RSdesc.DepthClipEnable = FALSE;
 
 		CHECKDX(device->CreateRasterizerState(&RSdesc, &RSStateSolid));
 
@@ -301,6 +302,22 @@ int main(int argc, char* argv[])
 		cbDesc.StructureByteStride = 0;
 
 		CHECKDX(device->CreateBuffer(&cbDesc, nullptr, &voxelStructure));
+
+		D3D11_BUFFER_DESC voxelClearDesc;
+		voxelClearDesc.ByteWidth = 128 * 128 * 128 * sizeof(uint32_t);
+		voxelClearDesc.Usage = D3D11_USAGE_IMMUTABLE;
+		voxelClearDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		voxelClearDesc.CPUAccessFlags = 0;
+		voxelClearDesc.MiscFlags = 0;
+		voxelClearDesc.StructureByteStride = 0;
+
+		std::vector<uint32_t> initVector(128 * 128 * 128, 0);
+		D3D11_SUBRESOURCE_DATA voxinitdata;
+		voxinitdata.pSysMem = &initVector[0];
+		voxinitdata.SysMemPitch = 128 * 128 * 128 * sizeof(uint32_t);
+		voxinitdata.SysMemSlicePitch = 0;
+
+		CHECKDX(device->CreateBuffer(&voxelClearDesc, &voxinitdata, &voxelClearBuffer));
 
 		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc;
 		uavDesc.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
@@ -377,6 +394,8 @@ int main(int argc, char* argv[])
 		context->OMSetRenderTargetsAndUnorderedAccessViews(1, &RT, 0, 1, 1, &voxelUAV, nullptr);
 		context->OMSetBlendState(voxelBlendState, nullptr, 0xffffffff);
 		context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+		context->CopyResource(voxelStructure, voxelClearBuffer);
 
 		D3D11_VIEWPORT voxviewPort;
 		ZeroMemory(&voxviewPort, sizeof(D3D11_VIEWPORT));
@@ -480,7 +499,7 @@ int main(int argc, char* argv[])
 		normalRT.PSSetSRV(1);
 		positionRT.PSSetSRV(2);
 		context->PSSetShaderResources(3, 1, &depthBufferView);
-
+		context->RSSetState(RSStateSolid);
 		
 		context->DrawInstanced(3, 1, 0, 0);
 		
@@ -503,20 +522,28 @@ int main(int argc, char* argv[])
 		
 		float chunkSize = 8.0f;
 		
-
+		
 		primitiveBatch->Begin();
 		
 		uint32_t voxelCounter = 0;
 		for (uint32_t i = 0; i < 128 * 128 * 128; ++i)
 		{
+			if (voxelCPUstructure[i] != 0 && voxelCPUstructure[i] != 1)
+				std::cout << "BUG!" << std::endl;
+
 			if (voxelCPUstructure[i] == 1)
 			{
+				if (voxelCounter % 1000 == 0)
+				{
+					primitiveBatch->End();
+					primitiveBatch->Begin();
+				}
 				++voxelCounter;
 
-				uint32_t x = i % 128;
-				uint32_t y = (i / 128) % 128;
-				uint32_t z = i / (128 * 128);
-				Vector3 ntl = Vector3((x - 64) * 8, (y - 64) * 8, (z - 64) * 8);
+				int32_t x = i % 128;
+				int32_t y = (i / 128) % 128;
+				int32_t z = i / (128 * 128);
+				Vector3 ntl = Vector3((float)(x - 64) * 8-4, (float)(y - 64) * 8+4, (float)(z - 64) * 8-4);
 				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, 0, chunkSize), Vector4(1, 0, 0, 0)));
 				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, 0), Vector4(1, 0, 0, 0)));
 				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, 0), Vector4(1, 0, 0, 0)));
@@ -534,7 +561,7 @@ int main(int argc, char* argv[])
 
 		std::cout << voxelCounter << std::endl;
 		primitiveBatch->End();
-
+		
 		swapChain->Present(0, 0);
 
 		context->PSSetShaderResources(0, 1, SRVzero);
@@ -555,6 +582,8 @@ int main(int argc, char* argv[])
 	RSStateSolid->Release();
 	RSStateWireframe->Release();
 	voxelBlendState->Release();
+	voxelStagingStructure->Release();
+	voxelClearBuffer->Release();
 	fsqVS->Release();
 	fsqPS->Release();
 	camConstBuffer->Release();

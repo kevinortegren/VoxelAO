@@ -17,17 +17,17 @@ struct GS_Output
 
 static const float3 viewDirections[3] =
 { 
-  float3(0.0f, 0.0f, -1.0f), // back to front
-  float3(-1.0f, 0.0f, 0.0f), // right to left
-  float3(0.0f, -1.0f, 0.0f)  // top to down 
+  float3(-1.0f, 0.0f, 0.0f), // back to front
+  float3(0.0f, -1.0f, 0.0f), // right to left
+  float3(0.0f, 0.0f, -1.0f)  // top to down 
 }; 
 
 uint GetViewIndex(in float3 normal)
 {
 	float3x3 directionMatrix;
-	directionMatrix[0] = -viewDirections[0];
-	directionMatrix[1] = -viewDirections[1];
-	directionMatrix[2] = -viewDirections[2];
+	directionMatrix[0] = viewDirections[0];
+	directionMatrix[1] = viewDirections[1];
+	directionMatrix[2] = viewDirections[2];
 	float3 dotProducts = abs(mul(directionMatrix, normal));
 	float maximum = max(max(dotProducts.x, dotProducts.y), dotProducts.z);
 	
@@ -62,6 +62,6 @@ void main(triangle VS_Output input[3], inout TriangleStream<GS_Output> outputStr
 	output[2].position.xy += normalize(side1N - side2N) * texelSize;
 
 	[unroll]
-	for(i = 0; i < 3; ++i)
-		outputStream.Append(output[i]);
+	for(uint j = 0; j < 3; ++j)
+		outputStream.Append(output[j]);
 }
