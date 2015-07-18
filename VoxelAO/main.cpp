@@ -23,6 +23,8 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
+//#define DEBUG_DRAW
+
 #define CHECKDX(x) if (x != S_OK) std::cerr << "DirectX has returned an ERROR on line: " << __LINE__ << " in: " << __FUNCTION__ << std::endl;
 
 const int WINDOW_WIDTH = 1536;
@@ -262,7 +264,7 @@ int main(int argc, char* argv[])
 		ZeroMemory(&RSdesc, sizeof(RSdesc));
 		RSdesc.FillMode = D3D11_FILL_SOLID;
 		RSdesc.CullMode = D3D11_CULL_NONE;
-		RSdesc.DepthClipEnable = FALSE;
+		RSdesc.DepthClipEnable = TRUE;
 
 		CHECKDX(device->CreateRasterizerState(&RSdesc, &RSStateSolid));
 
@@ -423,6 +425,7 @@ int main(int argc, char* argv[])
 
 		context->CopyResource(voxelStagingStructure, voxelStructure);
 
+#ifdef DEBUG_DRAW
 		uint32_t* voxelCPUstructure = new uint32_t[128 * 128 * 128];
 
 		D3D11_MAPPED_SUBRESOURCE mapData;
@@ -431,7 +434,7 @@ int main(int argc, char* argv[])
 			memcpy(voxelCPUstructure, mapData.pData, 128 * 128 * 128 * sizeof(uint32_t));
 			context->Unmap(voxelStagingStructure, 0);
 		}
-
+#endif
 
 		//Clear RTs before drawing
 		colorRT.Clear();
@@ -519,7 +522,8 @@ int main(int argc, char* argv[])
 		basicEffect->SetView(XMLoadFloat4x4(&camera.GetCamData().viewMat));
 		basicEffect->Apply(context);
 		context->IASetInputLayout(basicInputLayout);
-		
+
+#ifdef DEBUG_DRAW
 		float chunkSize = 8.0f;
 		
 		
@@ -528,9 +532,6 @@ int main(int argc, char* argv[])
 		uint32_t voxelCounter = 0;
 		for (uint32_t i = 0; i < 128 * 128 * 128; ++i)
 		{
-			if (voxelCPUstructure[i] != 0 && voxelCPUstructure[i] != 1)
-				std::cout << "BUG!" << std::endl;
-
 			if (voxelCPUstructure[i] == 1)
 			{
 				if (voxelCounter % 1000 == 0)
@@ -543,7 +544,7 @@ int main(int argc, char* argv[])
 				int32_t x = i % 128;
 				int32_t y = (i / 128) % 128;
 				int32_t z = i / (128 * 128);
-				Vector3 ntl = Vector3((float)(x - 64) * 8-4, (float)(y - 64) * 8+4, (float)(z - 64) * 8-4);
+				Vector3 ntl = Vector3((float)(x - 64) * 8, (float)(y - 64) * 8+8, (float)(z - 64) * 8);
 				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, 0, chunkSize), Vector4(1, 0, 0, 0)));
 				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, 0), Vector4(1, 0, 0, 0)));
 				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, 0), Vector4(1, 0, 0, 0)));
@@ -559,16 +560,18 @@ int main(int argc, char* argv[])
 			}
 		}
 
-		std::cout << voxelCounter << std::endl;
+		//std::cout << voxelCounter << std::endl;
 		primitiveBatch->End();
-		
+		delete[] voxelCPUstructure;
+#endif
+
 		swapChain->Present(0, 0);
 
 		context->PSSetShaderResources(0, 1, SRVzero);
 		context->PSSetShaderResources(1, 1, SRVzero);
 		context->PSSetShaderResources(2, 1, SRVzero);
 
-		delete[] voxelCPUstructure;
+		
 	}
 
 	std::cout << "Exiting program!" << std::endl;

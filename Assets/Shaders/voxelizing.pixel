@@ -9,9 +9,9 @@ struct GS_Output
 void main(GS_Output input) 
 {
 	// get offset into the voxel-grid
-	float3 offset = input.positionWS;
+	float3 offset = input.positionWS / 8.0f;
 
-	offset = round(offset);
+	offset = floor(offset);
 
 	// get position in the voxel-grid
 	int3 voxelPos = int3(64, 64, 64) + int3(offset.x, offset.y, offset.z);
@@ -23,7 +23,6 @@ void main(GS_Output input)
 
 		uint bitMask = 1;
 
-		// output color/ occlusion
 		gridBuffer.InterlockedOr(gridIndex, bitMask);
 	}
 }

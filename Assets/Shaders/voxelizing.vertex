@@ -7,7 +7,7 @@ struct VSout
 VSout main(float3 position : POSITION, float3 normal : NORMAL, float2 texc : TEXCOORD)
 {
 	VSout output;
-    output.pos =  position;// * 500.0f;
+    output.pos =  position;
 	output.normal = normal;
     return output;
 }
