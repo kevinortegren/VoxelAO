@@ -23,7 +23,7 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
-//#define DEBUG_DRAW
+#define DEBUG_DRAW
 
 #define CHECKDX(x) if (x != S_OK) std::cerr << "DirectX has returned an ERROR on line: " << __LINE__ << " in: " << __FUNCTION__ << std::endl;
 
@@ -31,6 +31,11 @@ const int WINDOW_WIDTH = 1536;
 const int WINDOW_HEIGHT = 768;
 const float FARZ = 3000.0f;
 const float NEARZ = 0.5f;
+const int VOXELSIZE = 1024;
+const float VOXEL_STRUCTURE_WIDTH = 1024.0f;
+const float VOXELWIDTH = VOXEL_STRUCTURE_WIDTH / (float)VOXELSIZE;
+const int NUM_VOXELS = VOXELSIZE * VOXELSIZE * VOXELSIZE;
+const int VOXEL_ELEMENTS = VOXELSIZE * VOXELSIZE * (VOXELSIZE / 32);
 
 //DX11
 IDXGISwapChain* swapChain;
@@ -87,6 +92,8 @@ SDL_Window* window;
 //Voxel matrix
 Matrix voxelMatrix;
 Matrix voxelViewProjMatrix[3];
+
+uint32_t* voxelCPUstructure = new uint32_t[VOXEL_ELEMENTS];
 
 //DXTK
 DirectX::PrimitiveBatch<DirectX::VertexPositionColor>* primitiveBatch;
@@ -274,10 +281,10 @@ int main(int argc, char* argv[])
 
 	//Init voxel stuff
 	{
-		voxelMatrix = Matrix::CreateOrthographic(1024.0f, 1024.0f, 0.0f, 1024.0f);
-		voxelViewProjMatrix[0] = Matrix::CreateLookAt(Vector3(-512, 0, 0), Vector3(0, 0, 0), Vector3(0, 1, 0)) * voxelMatrix;
-		voxelViewProjMatrix[1] = Matrix::CreateLookAt(Vector3(0, -512, 0), Vector3(0, 0, 0), Vector3(1, 0, 0)) * voxelMatrix;
-		voxelViewProjMatrix[2] = Matrix::CreateLookAt(Vector3(0, 0, -512), Vector3(0, 0, 0), Vector3(0, 1, 0)) * voxelMatrix;
+		voxelMatrix = Matrix::CreateOrthographic(VOXEL_STRUCTURE_WIDTH, VOXEL_STRUCTURE_WIDTH, 0.0f, VOXEL_STRUCTURE_WIDTH);
+		voxelViewProjMatrix[0] = Matrix::CreateLookAt(Vector3(-VOXEL_STRUCTURE_WIDTH/2, 0, 0), Vector3(0, 0, 0), Vector3(0, 1, 0)) * voxelMatrix;
+		voxelViewProjMatrix[1] = Matrix::CreateLookAt(Vector3(0, -VOXEL_STRUCTURE_WIDTH / 2, 0), Vector3(0, 0, 0), Vector3(1, 0, 0)) * voxelMatrix;
+		voxelViewProjMatrix[2] = Matrix::CreateLookAt(Vector3(0, 0, -VOXEL_STRUCTURE_WIDTH / 2), Vector3(0, 0, 0), Vector3(0, 1, 0)) * voxelMatrix;
 
 		D3D11_BUFFER_DESC voxmatbuffdesc;
 		voxmatbuffdesc.ByteWidth = 3 * sizeof(Matrix);
@@ -296,7 +303,7 @@ int main(int argc, char* argv[])
 
 
 		D3D11_BUFFER_DESC cbDesc;
-		cbDesc.ByteWidth = 128*128*128*sizeof(uint32_t);
+		cbDesc.ByteWidth = VOXEL_ELEMENTS * sizeof(uint32_t);
 		cbDesc.Usage = D3D11_USAGE_DEFAULT;
 		cbDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
 		cbDesc.CPUAccessFlags = 0;
@@ -306,17 +313,17 @@ int main(int argc, char* argv[])
 		CHECKDX(device->CreateBuffer(&cbDesc, nullptr, &voxelStructure));
 
 		D3D11_BUFFER_DESC voxelClearDesc;
-		voxelClearDesc.ByteWidth = 128 * 128 * 128 * sizeof(uint32_t);
+		voxelClearDesc.ByteWidth = VOXEL_ELEMENTS * sizeof(uint32_t);
 		voxelClearDesc.Usage = D3D11_USAGE_IMMUTABLE;
 		voxelClearDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		voxelClearDesc.CPUAccessFlags = 0;
 		voxelClearDesc.MiscFlags = 0;
 		voxelClearDesc.StructureByteStride = 0;
 
-		std::vector<uint32_t> initVector(128 * 128 * 128, 0);
+		std::vector<uint32_t> initVector(VOXEL_ELEMENTS, 0);
 		D3D11_SUBRESOURCE_DATA voxinitdata;
 		voxinitdata.pSysMem = &initVector[0];
-		voxinitdata.SysMemPitch = 128 * 128 * 128 * sizeof(uint32_t);
+		voxinitdata.SysMemPitch = VOXEL_ELEMENTS * sizeof(uint32_t);
 		voxinitdata.SysMemSlicePitch = 0;
 
 		CHECKDX(device->CreateBuffer(&voxelClearDesc, &voxinitdata, &voxelClearBuffer));
@@ -324,14 +331,14 @@ int main(int argc, char* argv[])
 		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc;
 		uavDesc.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
 		uavDesc.Buffer.FirstElement = 0;
-		uavDesc.Buffer.NumElements = 128 * 128 * 128;
+		uavDesc.Buffer.NumElements = VOXEL_ELEMENTS;
 		uavDesc.Format = DXGI_FORMAT_R32_TYPELESS;
 		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
 
 		CHECKDX(device->CreateUnorderedAccessView(voxelStructure, &uavDesc, &voxelUAV));
 
 		D3D11_BUFFER_DESC voxelStagingDesc;
-		voxelStagingDesc.ByteWidth = 128 * 128 * 128 * sizeof(uint32_t);
+		voxelStagingDesc.ByteWidth = VOXEL_ELEMENTS * sizeof(uint32_t);
 		voxelStagingDesc.Usage = D3D11_USAGE_STAGING;
 		voxelStagingDesc.BindFlags = 0;
 		voxelStagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -340,7 +347,7 @@ int main(int argc, char* argv[])
 
 		CHECKDX(device->CreateBuffer(&voxelStagingDesc, nullptr, &voxelStagingStructure));
 
-		voxelVoidRT.CreateRenderTarget(128, 128, DXGI_FORMAT_R8G8_UNORM);
+		voxelVoidRT.CreateRenderTarget(VOXELSIZE, VOXELSIZE, DXGI_FORMAT_R8G8_UNORM);
 
 		D3D11_BLEND_DESC blendDesc = { 0 };
 
@@ -383,7 +390,7 @@ int main(int argc, char* argv[])
 			camera.MoveDown(dt);
 		if (keystate[SDL_SCANCODE_SPACE])
 			camera.MoveUp(dt);
-			
+
 		camera.Update();
 
 		D3D11_MAPPED_SUBRESOURCE camResource;
@@ -406,8 +413,8 @@ int main(int argc, char* argv[])
 		voxviewPort.TopLeftY = 0;
 		voxviewPort.MinDepth = 0.0f;
 		voxviewPort.MaxDepth = 1.0f;
-		voxviewPort.Width = 128;
-		voxviewPort.Height = 128;
+		voxviewPort.Width = VOXELSIZE;
+		voxviewPort.Height = VOXELSIZE;
 
 		context->RSSetViewports(1, &voxviewPort);
 
@@ -426,12 +433,11 @@ int main(int argc, char* argv[])
 		context->CopyResource(voxelStagingStructure, voxelStructure);
 
 #ifdef DEBUG_DRAW
-		uint32_t* voxelCPUstructure = new uint32_t[128 * 128 * 128];
 
 		D3D11_MAPPED_SUBRESOURCE mapData;
 		if (context->Map(voxelStagingStructure, 0, D3D11_MAP_READ, 0, &mapData) == S_OK)
 		{
-			memcpy(voxelCPUstructure, mapData.pData, 128 * 128 * 128 * sizeof(uint32_t));
+			memcpy(voxelCPUstructure, mapData.pData, VOXEL_ELEMENTS * sizeof(uint32_t));
 			context->Unmap(voxelStagingStructure, 0);
 		}
 #endif
@@ -444,12 +450,12 @@ int main(int argc, char* argv[])
 		context->ClearDepthStencilView(depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 		//Set Gbuffer RTs
-		ID3D11RenderTargetView* RTs[] = {colorRT.GetRenderTargetView(), normalRT.GetRenderTargetView(), positionRT.GetRenderTargetView()};
+		ID3D11RenderTargetView* RTs[] = { colorRT.GetRenderTargetView(), normalRT.GetRenderTargetView(), positionRT.GetRenderTargetView() };
 		ID3D11RenderTargetView* RTzero[] = { 0, 0, 0 };
 		context->OMSetRenderTargets(3, RTs, depthStencilView);
 		context->OMSetBlendState(nullptr, nullptr, 0xffffffff);
-		
-		
+
+
 		//Set shaders
 		D3D11_VIEWPORT viewPort;
 		ZeroMemory(&viewPort, sizeof(D3D11_VIEWPORT));
@@ -470,8 +476,8 @@ int main(int argc, char* argv[])
 		context->PSSetSamplers(0, 1, &linearSamplerState);
 		context->VSSetConstantBuffers(0, 1, &camConstBuffer);
 		context->RSSetState(RSStateSolid);
-		
-		
+
+
 		//Draw geometry
 		mesh->Apply();
 		mesh->DrawIndexed();
@@ -503,9 +509,9 @@ int main(int argc, char* argv[])
 		positionRT.PSSetSRV(2);
 		context->PSSetShaderResources(3, 1, &depthBufferView);
 		context->RSSetState(RSStateSolid);
-		
+
 		context->DrawInstanced(3, 1, 0, 0);
-		
+
 
 		double gpuTime = timer->GetTime();
 
@@ -524,45 +530,51 @@ int main(int argc, char* argv[])
 		context->IASetInputLayout(basicInputLayout);
 
 #ifdef DEBUG_DRAW
-		float chunkSize = 8.0f;
-		
-		
-		primitiveBatch->Begin();
-		
-		uint32_t voxelCounter = 0;
-		for (uint32_t i = 0; i < 128 * 128 * 128; ++i)
-		{
-			if (voxelCPUstructure[i] == 1)
-			{
-				if (voxelCounter % 1000 == 0)
-				{
-					primitiveBatch->End();
-					primitiveBatch->Begin();
-				}
-				++voxelCounter;
+		float chunkSize = VOXELWIDTH;
 
-				int32_t x = i % 128;
-				int32_t y = (i / 128) % 128;
-				int32_t z = i / (128 * 128);
-				Vector3 ntl = Vector3((float)(x - 64) * 8, (float)(y - 64) * 8+8, (float)(z - 64) * 8);
-				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, 0, chunkSize), Vector4(1, 0, 0, 0)));
-				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, 0), Vector4(1, 0, 0, 0)));
-				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, 0), Vector4(1, 0, 0, 0)));
-				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, chunkSize), Vector4(1, 0, 0, 0)));
-				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, 0), Vector4(1, 0, 0, 0)));
-				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, 0), Vector4(1, 0, 0, 0)));
-				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)));
-				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)));
-				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, 0, chunkSize), Vector4(1, 0, 0, 0)));
-				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(0, 0, chunkSize), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, chunkSize), Vector4(1, 0, 0, 0)));
-				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)));
-				primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, chunkSize), Vector4(1, 0, 0, 0)));
+		primitiveBatch->Begin();
+
+		uint32_t voxelCounter = 0;
+		for (uint32_t i = VOXEL_ELEMENTS / 4; i < VOXEL_ELEMENTS / 4 + VOXEL_ELEMENTS / 8; ++i)
+		{
+			int32_t x = i % VOXELSIZE;
+			int32_t y = (i / VOXELSIZE) % VOXELSIZE;
+			int32_t z = (i / (VOXELSIZE * VOXELSIZE)) * 32;
+			uint32_t voxelTile = voxelCPUstructure[i];
+
+			
+			for(int32_t j = 0; j < 32; ++j)
+			{
+
+				if ( (voxelTile & 0x01) == 1)
+				{
+					if (voxelCounter % 1000 == 0)
+					{
+						primitiveBatch->End();
+						primitiveBatch->Begin();
+					}
+					++voxelCounter;
+
+					Vector3 ntl = Vector3((float)(x - VOXELSIZE/2) * VOXELWIDTH, (float)(y - VOXELSIZE/2) * VOXELWIDTH+VOXELWIDTH, (float)((z + j) - VOXELSIZE/2) * VOXELWIDTH);
+					primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, 0, chunkSize), Vector4(1, 0, 0, 0)));
+					primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, 0), Vector4(1, 0, 0, 0)));
+					primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl, Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, 0), Vector4(1, 0, 0, 0)));
+					primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, chunkSize), Vector4(1, 0, 0, 0)));
+					primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, 0), Vector4(1, 0, 0, 0)));
+					primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, 0), Vector4(1, 0, 0, 0)));
+					primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)));
+					primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)));
+					primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(0, 0, chunkSize), Vector4(1, 0, 0, 0)));
+					primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(0, 0, chunkSize), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, chunkSize), Vector4(1, 0, 0, 0)));
+					primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(0, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)));
+					primitiveBatch->DrawLine(DirectX::VertexPositionColor(ntl + Vector3(chunkSize, -chunkSize, chunkSize), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(ntl + Vector3(chunkSize, 0, chunkSize), Vector4(1, 0, 0, 0)));
+				}
+				voxelTile = voxelTile >> 1;
 			}
 		}
 
-		//std::cout << voxelCounter << std::endl;
+		std::cout << voxelCounter << std::endl;
 		primitiveBatch->End();
-		delete[] voxelCPUstructure;
 #endif
 
 		swapChain->Present(0, 0);
@@ -580,6 +592,7 @@ int main(int argc, char* argv[])
 	delete primitiveBatch;
 	delete basicEffect;
 	delete timer;
+	delete[] voxelCPUstructure;
 
 	depthStencilView->Release();
 	RSStateSolid->Release();
