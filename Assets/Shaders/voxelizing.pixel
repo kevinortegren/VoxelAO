@@ -9,7 +9,7 @@ struct GS_Output
 void main(GS_Output input) 
 {
 	// get offset into the voxel-grid
-	float3 offset = input.positionWS;// / 2.0f;
+	float3 offset = input.positionWS / 3.0f;// / 2.0f;
 
 	offset = floor(offset);
 

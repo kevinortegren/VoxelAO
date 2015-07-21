@@ -5,14 +5,15 @@
 #include "Mesh.h"
 #include "Texture.h"
 #include <map>
+#include <memory>
+
+using namespace DirectX::SimpleMath;
 
 class OBJLoader
 {
 public:
 	OBJLoader();
 	~OBJLoader();
-	
-	Mesh* LoadOBJ(const char* file);
-private:
-	void LoadMTL(std::map<std::string, Material>& materialMap, const char* file);
+
+	std::unique_ptr<Mesh> LoadBIN(const char* file);
 };

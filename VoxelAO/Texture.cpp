@@ -1,5 +1,6 @@
 #include "Texture.h"
 #include <iostream>
+#include <DDSTextureLoader.h>
 
 extern ID3D11Device* device;
 extern ID3D11DeviceContext* context;
@@ -17,7 +18,13 @@ Texture::~Texture()
 
 void Texture::CreateTextureFromFile(const char* file)
 {
-	HRESULT result;
+	wchar_t wstring[150];
+
+	MultiByteToWideChar(CP_ACP, 0, file, -1, wstring, 150);
+
+	DirectX::CreateDDSTextureFromFile(device, wstring, nullptr, &textureRSV, 0, nullptr);
+
+	/*HRESULT result;
 
 	SDL_Surface *image;
 	image = IMG_Load(file);
@@ -59,7 +66,7 @@ void Texture::CreateTextureFromFile(const char* file)
 	//Clean up
 	delete[] dstPixels;
 	testTex->Release();
-	SDL_FreeSurface(image);
+	SDL_FreeSurface(image);*/
 }
 
 void Texture::PSSetSRV(unsigned slot)

@@ -4,7 +4,7 @@
 extern ID3D11Device* device;
 extern ID3D11DeviceContext* context;
 
-Mesh::Mesh(std::vector<Vertex>* vertexList, std::vector<unsigned>* indexList, std::vector<MeshGroup> pmeshGroups, std::map<std::string, Material> pmaterialMap)
+Mesh::Mesh(VertexIndexData* vert_ind_data, std::vector<MeshGroup> pmeshGroups, std::map<std::string, Material> pmaterialMap)
 {
 	meshGroups = pmeshGroups;
 	materialMap = pmaterialMap;
@@ -12,8 +12,9 @@ Mesh::Mesh(std::vector<Vertex>* vertexList, std::vector<unsigned>* indexList, st
 	D3D11_SUBRESOURCE_DATA initData;
 	D3D11_BUFFER_DESC bufferDesc;
 
-	numVertices = vertexList->size();
-	numIndices = indexList->size();
+	numVertices = vert_ind_data->vertexData.size();
+	numIndices = vert_ind_data->indexData.size();
+
 	stride = sizeof(Vertex);
 	offset = 0;
 
@@ -27,7 +28,7 @@ Mesh::Mesh(std::vector<Vertex>* vertexList, std::vector<unsigned>* indexList, st
 
 	//Vertex init data
 	ZeroMemory(&initData, sizeof(initData));
-	initData.pSysMem = &vertexList->at(0);
+	initData.pSysMem = &vert_ind_data->vertexData[0];
 
 	result = device->CreateBuffer(&bufferDesc, &initData, &vertexBuffer);
 	if (result != S_OK)
@@ -41,7 +42,7 @@ Mesh::Mesh(std::vector<Vertex>* vertexList, std::vector<unsigned>* indexList, st
 
 	//Vertex init data
 	ZeroMemory(&initData, sizeof(initData));
-	initData.pSysMem = &indexList->at(0);
+	initData.pSysMem = &vert_ind_data->indexData[0];
 
 	result = device->CreateBuffer(&bufferDesc, &initData, &indexBuffer);
 	if (result != S_OK)

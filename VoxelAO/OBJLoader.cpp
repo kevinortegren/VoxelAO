@@ -4,6 +4,12 @@
 #include <string>
 #include <SimpleMath.h>
 
+struct MatMap
+{
+	char mat[64];
+	char tex[64];
+};
+
 OBJLoader::OBJLoader()
 {
 
@@ -14,167 +20,68 @@ OBJLoader::~OBJLoader()
 
 }
 
-Mesh* OBJLoader::LoadOBJ(const char* file)
+std::unique_ptr<Mesh> OBJLoader::LoadBIN(const char* file)
 {
-	std::fstream objFile(file);
-
-	std::vector<Vector3> positions;
-	std::vector<Vector3> normals;
-	std::vector<Vector2> texcoords;
-
-	std::vector<Vertex> vertexList;
-	std::vector<unsigned> indexList;
-
+	VertexIndexData data;
 	std::vector<MeshGroup> meshGroups;
+	std::vector<MatMap> matMap;
+	std::ifstream binFile;
+
+	binFile.open(file, std::ifstream::in | std::ifstream::binary);
+
+	if (binFile.is_open())
+	{
+		uint32_t vertexCount = 0;
+		uint32_t indexCount = 0;
+
+		binFile.read((char*)&vertexCount, sizeof(uint32_t));
+		binFile.read((char*)&indexCount, sizeof(uint32_t));
+
+		data.vertexData.resize(vertexCount);
+		data.indexData.resize(indexCount);
+
+		binFile.read((char*)&data.vertexData[0], vertexCount * sizeof(Vertex));
+		binFile.read((char*)&data.indexData[0], indexCount * sizeof(uint32_t));
+
+		uint32_t groupCount = 0;
+
+		binFile.read((char*)&groupCount, sizeof(uint32_t));
+
+		meshGroups.resize(groupCount);
+
+		binFile.read((char*)&meshGroups[0], groupCount * sizeof(MeshGroup));
+
+		//read materials
+		uint32_t materialCount = 0;
+		binFile.read((char*)&materialCount, sizeof(uint32_t));
+
+		matMap.resize(materialCount);
+
+		binFile.read((char*)&matMap[0], materialCount * sizeof(MatMap));
+
+		binFile.close();
+	}
+
 
 	std::map<std::string, Material> materialMap;
-
-
-	if (objFile)
+	for (auto mm : matMap)
 	{
-		std::string line;
-		std::string prefix;
+		std::string textureName(mm.tex);
+		std::string filePath = "../Assets/Models/" + textureName;
 
-		while (objFile.eof() == false)
+		Material mat;
+		if (textureName == "")
 		{
-			prefix = "NULL";
-			std::stringstream lineStream;
-
-			getline(objFile, line);
-			lineStream << line;
-			lineStream >> prefix;
-
-			
-			if (prefix == "v")
-			{
-				Vector3 pos;
-				lineStream >> pos.x >> pos.y >> pos.z;
-				positions.push_back(pos);
-			}
-			else if (prefix == "vt")
-			{
-				Vector2 uv;
-				lineStream >> uv.x >> uv.y;
-				uv.y = 1 - uv.y;
-				texcoords.push_back(uv);
-			}
-			else if (prefix == "vn")
-			{
-				Vector3 normal;
-				lineStream >> normal.x >> normal.y >> normal.z;
-				normals.push_back(normal);
-			}
-			else if (prefix == "g")
-			{
-				
-			}
-			else if (prefix == "usemtl")
-			{
-				if (meshGroups.size() != 0)
-				{
-					meshGroups[meshGroups.size() - 1].numIndices = indexList.size() - meshGroups[meshGroups.size() - 1].startIndex;
-				}
-
-				MeshGroup mg;
-				mg.startIndex = indexList.size();
-				meshGroups.push_back(mg);
-
-				lineStream >> meshGroups[meshGroups.size() - 1].material;
-			}
-			else if (prefix == "f")
-			{
-				Vertex vert;
-				char slash;
-
-				int indexPos;
-				int texPos;
-				int normPos;
-
-				//Loop through vertex points in face
-				for (unsigned i = 0; i < 3; ++i)
-				{
-					lineStream >> indexPos >> slash >> texPos >> slash >> normPos;
-
-					vert.pos = positions[indexPos - 1];
-					vert.texc = texcoords[texPos - 1];
-					vert.normal = normals[normPos - 1];
-
-					indexList.push_back(vertexList.size());
-					vertexList.push_back(vert);
-				}
-				
-				//Check if there is a fourth vertex in the face. If there is it means that is a quad face.
-				indexPos = -1;
-				lineStream >> indexPos >> slash >> texPos >> slash >> normPos;
-				if (indexPos != -1)
-				{
-					vert.pos = positions[indexPos - 1];
-					vert.texc = texcoords[texPos - 1];
-					vert.normal = normals[normPos - 1];
-
-					unsigned vertexListSize = vertexList.size();
-					indexList.push_back(vertexListSize);
-					indexList.push_back(vertexListSize - 3);
-					indexList.push_back(vertexListSize - 1);
-					vertexList.push_back(vert);
-				}
-			}
-			else if (prefix == "mtllib")
-			{
-				std::string mtlName;
-				lineStream >> mtlName;
-				std::string mtlPath = "../Assets/Models/" + mtlName;
-				LoadMTL(materialMap, mtlPath.c_str());
-			}
+			mat.diffuse = nullptr;
 		}
-	}
-
-	if (meshGroups.size() != 0)
-	{
-		meshGroups[meshGroups.size() - 1].numIndices = indexList.size() - meshGroups[meshGroups.size() - 1].startIndex;
-	}
-
-	return new Mesh(&vertexList, &indexList, meshGroups, materialMap);
-}
-
-void OBJLoader::LoadMTL(std::map<std::string, Material>& materialMap, const char* file)
-{
-	std::fstream mtlFile(file);
-	std::string currentMaterial;
-
-	if (mtlFile)
-	{
-		std::string line;
-		std::string prefix;
-
-		while (mtlFile.eof() == false)
+		else
 		{
-			prefix = "NULL";
-			std::stringstream lineStream;
-
-			getline(mtlFile, line);
-			lineStream << line;
-			lineStream >> prefix;
-
-			if (prefix == "newmtl")
-			{
-				lineStream >> currentMaterial;
-				Material mat;
-				mat.diffuse = new Texture();
-
-				materialMap[currentMaterial] = mat;
-			}
-			else if (prefix == "map_Kd")
-			{
-				std::string texName;
-				lineStream >> texName;
-				std::string filePath = "../Assets/Models/" + texName;
-				materialMap[currentMaterial].diffuse->CreateTextureFromFile(filePath.c_str());
-			}
-			else if (prefix == "map_d")
-			{
-				
-			}
+			mat.diffuse = new Texture();
+			mat.diffuse->CreateTextureFromFile(filePath.c_str());
 		}
+
+		materialMap[mm.mat] = mat;
 	}
+
+	return  std::make_unique<Mesh>(&data, meshGroups, materialMap);
 }

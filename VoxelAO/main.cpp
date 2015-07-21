@@ -19,20 +19,23 @@
 #include "D3D11Timer.h"
 #include <cmath>
 #include <algorithm>
+#include <memory>
+
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
-#define DEBUG_DRAW
+
+//#define DEBUG_DRAW
 
 #define CHECKDX(x) if (x != S_OK) std::cerr << "DirectX has returned an ERROR on line: " << __LINE__ << " in: " << __FUNCTION__ << std::endl;
 
-const int WINDOW_WIDTH = 1536;
-const int WINDOW_HEIGHT = 768;
+const int WINDOW_WIDTH = 1280;
+const int WINDOW_HEIGHT = 720;
 const float FARZ = 3000.0f;
 const float NEARZ = 0.5f;
 const int VOXELSIZE = 1024;
-const float VOXEL_STRUCTURE_WIDTH = 1024.0f;
+const float VOXEL_STRUCTURE_WIDTH = 1024.0f * 3;
 const float VOXELWIDTH = VOXEL_STRUCTURE_WIDTH / (float)VOXELSIZE;
 const int NUM_VOXELS = VOXELSIZE * VOXELSIZE * VOXELSIZE;
 const int VOXEL_ELEMENTS = VOXELSIZE * VOXELSIZE * (VOXELSIZE / 32);
@@ -63,6 +66,7 @@ ID3D11Buffer* voxelStructure;
 ID3D11Buffer* voxelStagingStructure;
 ID3D11Buffer* voxelMatBuffer;
 ID3D11Buffer* voxelClearBuffer;
+ID3D11Buffer* voxelSampleKernel;
 
 RenderTarget voxelVoidRT;
 
@@ -71,6 +75,7 @@ ID3D11BlendState* voxelBlendState;
 ID3D11UnorderedAccessView* voxelUAV;
 
 ID3D11ShaderResourceView* depthBufferView;
+ID3D11ShaderResourceView* voxelSRV;
 
 ID3D11InputLayout *layout;
 ID3D11InputLayout *fsqlayout;
@@ -85,13 +90,15 @@ RenderTarget positionRT;
 
 Camera camera;
 
-Mesh* mesh;
+std::unique_ptr<Mesh> mesh;
 
 SDL_Window* window;
 
 //Voxel matrix
 Matrix voxelMatrix;
 Matrix voxelViewProjMatrix[3];
+
+Vector4 sampleKernel[25];
 
 uint32_t* voxelCPUstructure = new uint32_t[VOXEL_ELEMENTS];
 
@@ -170,7 +177,9 @@ int main(int argc, char* argv[])
 
 		//Full screen quad shader
 		CHECKDX(D3DCompileFromFile(L"../Assets/Shaders/fsq.vertex", nullptr, nullptr, "main", "vs_5_0", flags, 0, &vsblob, nullptr));
-		CHECKDX(D3DCompileFromFile(L"../Assets/Shaders/fsq.pixel", nullptr, nullptr, "main", "ps_5_0", flags, 0, &psblob, nullptr));
+		CHECKDX(D3DCompileFromFile(L"../Assets/Shaders/fsq.pixel", nullptr, nullptr, "main", "ps_5_0", flags, 0, &psblob, &errblob));
+		if (errblob)
+			std::cout << (char*)errblob->GetBufferPointer() << std::endl;
 
 		CHECKDX(device->CreateVertexShader(vsblob->GetBufferPointer(), vsblob->GetBufferSize(), nullptr, &fsqVS));
 		CHECKDX(device->CreatePixelShader(psblob->GetBufferPointer(), psblob->GetBufferSize(), nullptr, &fsqPS));
@@ -215,7 +224,7 @@ int main(int argc, char* argv[])
 	{
 		OBJLoader objLoader;
 
-		mesh = objLoader.LoadOBJ("../Assets/Models/sponza.obj");
+		mesh = objLoader.LoadBIN("../Assets/Models/sponza.bin");
 	}
 
 	//Camera 
@@ -305,7 +314,7 @@ int main(int argc, char* argv[])
 		D3D11_BUFFER_DESC cbDesc;
 		cbDesc.ByteWidth = VOXEL_ELEMENTS * sizeof(uint32_t);
 		cbDesc.Usage = D3D11_USAGE_DEFAULT;
-		cbDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+		cbDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
 		cbDesc.CPUAccessFlags = 0;
 		cbDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
 		cbDesc.StructureByteStride = 0;
@@ -337,6 +346,15 @@ int main(int argc, char* argv[])
 
 		CHECKDX(device->CreateUnorderedAccessView(voxelStructure, &uavDesc, &voxelUAV));
 
+		D3D11_SHADER_RESOURCE_VIEW_DESC voxelstructsdesc;
+		voxelstructsdesc.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
+		voxelstructsdesc.BufferEx.FirstElement = 0;
+		voxelstructsdesc.BufferEx.NumElements = VOXEL_ELEMENTS;
+		voxelstructsdesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+		voxelstructsdesc.Format = DXGI_FORMAT_R32_TYPELESS;
+		
+		CHECKDX(device->CreateShaderResourceView(voxelStructure, &voxelstructsdesc, &voxelSRV));
+
 		D3D11_BUFFER_DESC voxelStagingDesc;
 		voxelStagingDesc.ByteWidth = VOXEL_ELEMENTS * sizeof(uint32_t);
 		voxelStagingDesc.Usage = D3D11_USAGE_STAGING;
@@ -353,6 +371,37 @@ int main(int argc, char* argv[])
 
 		CHECKDX(device->CreateBlendState(&blendDesc, &voxelBlendState));
 
+	}
+
+	//Set up ray marching sample kernel
+	{
+		int32_t kernelSizeX = 5;
+		int32_t kernelSizeZ = 5;
+
+		for (int32_t x = 0; x < kernelSizeX; ++x)
+		{
+			for (int32_t z = 0; z < kernelSizeZ; ++z)
+			{
+				sampleKernel[x + kernelSizeX * z] = Vector4(((x - kernelSizeX / 2) * 0.5f), ((z - kernelSizeZ / 2)* 0.5f), 1.0f, 0.0f);
+				sampleKernel[x + kernelSizeX * z].Normalize();
+			}
+		}
+
+		D3D11_BUFFER_DESC buffdesc;
+		buffdesc.ByteWidth = 25 * sizeof(Vector4);
+		buffdesc.Usage = D3D11_USAGE_IMMUTABLE;
+		buffdesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		buffdesc.CPUAccessFlags = 0;
+		buffdesc.MiscFlags = 0;
+		buffdesc.StructureByteStride = 0;
+
+		D3D11_SUBRESOURCE_DATA data;
+		data.pSysMem = &sampleKernel[0];
+		data.SysMemPitch = 25 * sizeof(Vector4);
+		data.SysMemSlicePitch = 0;
+
+		CHECKDX(device->CreateBuffer(&buffdesc, &data, &voxelSampleKernel));
+		
 	}
 
 	//Set states, these are static states for the moment
@@ -404,7 +453,7 @@ int main(int argc, char* argv[])
 		context->OMSetBlendState(voxelBlendState, nullptr, 0xffffffff);
 		context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-		context->CopyResource(voxelStructure, voxelClearBuffer);
+		//context->CopyResource(voxelStructure, voxelClearBuffer);
 
 		D3D11_VIEWPORT voxviewPort;
 		ZeroMemory(&voxviewPort, sizeof(D3D11_VIEWPORT));
@@ -425,14 +474,14 @@ int main(int argc, char* argv[])
 		context->GSSetConstantBuffers(0, 1, &voxelMatBuffer);
 		context->RSSetState(RSStateSolid);
 
-		timer->Start();
+		
 		mesh->Apply();
 		mesh->Draw();
-		timer->Stop();
 
-		context->CopyResource(voxelStagingStructure, voxelStructure);
+		
 
 #ifdef DEBUG_DRAW
+		context->CopyResource(voxelStagingStructure, voxelStructure);
 
 		D3D11_MAPPED_SUBRESOURCE mapData;
 		if (context->Map(voxelStagingStructure, 0, D3D11_MAP_READ, 0, &mapData) == S_OK)
@@ -499,6 +548,8 @@ int main(int argc, char* argv[])
 
 		double interval = (static_cast<double>(end.QuadPart - start.QuadPart) / frequency.QuadPart) * 1000.0;
 
+		//->OMSetRenderTargetsAndUnorderedAccessViews(1, &backBuffer, 0, 1, 1, &voxelUAV, nullptr);
+
 		context->OMSetRenderTargets(1, &backBuffer, 0);
 		//Draw to backbuffer
 		context->VSSetShader(fsqVS, 0, 0);
@@ -507,15 +558,18 @@ int main(int argc, char* argv[])
 		colorRT.PSSetSRV(0);
 		normalRT.PSSetSRV(1);
 		positionRT.PSSetSRV(2);
-		context->PSSetShaderResources(3, 1, &depthBufferView);
+		context->PSSetShaderResources(3, 1, &depthBufferView); 
+		context->PSSetShaderResources(4, 1, &voxelSRV);
+		context->PSSetConstantBuffers(0, 1, &voxelSampleKernel);
 		context->RSSetState(RSStateSolid);
 
+		timer->Start();
 		context->DrawInstanced(3, 1, 0, 0);
-
+		timer->Stop();
 
 		double gpuTime = timer->GetTime();
 
-		std::string outstr = "LA: " + std::to_string(interval) + "Shading time: " + std::to_string(gpuTime);
+		std::string outstr = "LA: " + std::to_string(interval) + "Voxelization time: " + std::to_string(gpuTime);
 		SDL_SetWindowTitle(window, outstr.c_str());
 
 		ID3D11ShaderResourceView* SRVzero[] = { 0 };
@@ -535,7 +589,7 @@ int main(int argc, char* argv[])
 		primitiveBatch->Begin();
 
 		uint32_t voxelCounter = 0;
-		for (uint32_t i = VOXEL_ELEMENTS / 4; i < VOXEL_ELEMENTS / 4 + VOXEL_ELEMENTS / 8; ++i)
+		for (uint32_t i = 0; i <  VOXEL_ELEMENTS; ++i)
 		{
 			int32_t x = i % VOXELSIZE;
 			int32_t y = (i / VOXELSIZE) % VOXELSIZE;
@@ -548,7 +602,7 @@ int main(int argc, char* argv[])
 
 				if ( (voxelTile & 0x01) == 1)
 				{
-					if (voxelCounter % 1000 == 0)
+					if (voxelCounter % 1000 == 0) //Max primitive batch size is 2^16 indices, splitting up to handle more
 					{
 						primitiveBatch->End();
 						primitiveBatch->Begin();
@@ -577,18 +631,53 @@ int main(int argc, char* argv[])
 		primitiveBatch->End();
 #endif
 
+		primitiveBatch->Begin();
+		
+		Vector3 n = Vector3(-0.2f, 0.5f, -1.0f);
+		n.Normalize();
+		Vector3 b1;
+		Vector3 b2;
+
+		if (n.z < -0.9999999f) // Handle the singularity
+		{
+			b1 = Vector3(0.0f, -1.0f, 0.0f);
+			b2 = Vector3(-1.0f, 0.0f, 0.0f);
+		}
+		else
+		{
+			const float a = 1.0f / (1.0f + n.z);
+			const float b = -n.x*n.y*a;
+			b1 = Vector3(1.0f - n.x*n.x*a, b, -n.x);
+			b2 = Vector3(b, 1.0f - n.y*n.y*a, -n.y);
+		}
+		Matrix orthoBasis = Matrix(b1, b2, n);
+
+		primitiveBatch->DrawLine(DirectX::VertexPositionColor(Vector3(0, 0, 0), Vector4(1, 0, 0, 0)), DirectX::VertexPositionColor(n*10, Vector4(1, 0, 0, 0)));
+		primitiveBatch->DrawLine(DirectX::VertexPositionColor(Vector3(0, 0, 0), Vector4(0, 1, 0, 0)), DirectX::VertexPositionColor(b1*10, Vector4(0, 1, 0, 0)));
+		primitiveBatch->DrawLine(DirectX::VertexPositionColor(Vector3(0, 0, 0), Vector4(0, 0, 1, 0)), DirectX::VertexPositionColor(b2*10, Vector4(0, 0, 1, 0)));
+
+		for (int32_t i = 0; i < 25; i++)
+		{
+			Vector3 tempNorm =  Vector3::Transform(Vector3(sampleKernel[i]), orthoBasis);
+
+			primitiveBatch->DrawLine(DirectX::VertexPositionColor(Vector3(0, 0, 0), Vector4(0, 1, 1, 0)), DirectX::VertexPositionColor(Vector3(tempNorm * 9), Vector4(0, 1, 1, 0)));
+		}
+
+		primitiveBatch->End();
+
 		swapChain->Present(0, 0);
 
 		context->PSSetShaderResources(0, 1, SRVzero);
 		context->PSSetShaderResources(1, 1, SRVzero);
 		context->PSSetShaderResources(2, 1, SRVzero);
+		context->PSSetShaderResources(3, 1, SRVzero);
+		context->PSSetShaderResources(4, 1, SRVzero);
 
 		
 	}
 
 	std::cout << "Exiting program!" << std::endl;
 
-	delete mesh;
 	delete primitiveBatch;
 	delete basicEffect;
 	delete timer;
@@ -599,7 +688,9 @@ int main(int argc, char* argv[])
 	RSStateWireframe->Release();
 	voxelBlendState->Release();
 	voxelStagingStructure->Release();
+	voxelSampleKernel->Release();
 	voxelClearBuffer->Release();
+	voxelSRV->Release();
 	fsqVS->Release();
 	fsqPS->Release();
 	camConstBuffer->Release();
@@ -734,7 +825,7 @@ void InitD3D(HWND winHandle)
 	//Create renderTagets for GBuffer
 	colorRT.CreateRenderTarget(WINDOW_WIDTH, WINDOW_HEIGHT, DXGI_FORMAT_R8G8B8A8_UNORM);
 	normalRT.CreateRenderTarget(WINDOW_WIDTH, WINDOW_HEIGHT, DXGI_FORMAT_R16G16B16A16_FLOAT);
-	positionRT.CreateRenderTarget(WINDOW_WIDTH, WINDOW_HEIGHT, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	positionRT.CreateRenderTarget(WINDOW_WIDTH, WINDOW_HEIGHT, DXGI_FORMAT_R32G32B32A32_FLOAT);
 
 	
 }

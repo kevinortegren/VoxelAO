@@ -8,27 +8,32 @@
 #include <string>
 
 
+struct VertexIndexData
+{
+	std::vector<Vertex> vertexData;
+	std::vector<uint32_t> indexData;
+};
+
 struct Material
 {
 	Texture* diffuse;
-	Texture* clipMask;
 };
 
-struct MeshGroup 
+struct MeshGroup
 {
 	//The index where the draw command should start
-	unsigned startIndex;
+	UINT startIndex;
 	//Number of indices that will be rendered
-	unsigned numIndices;
+	UINT numIndices;
 
 	//Texture handles
-	std::string material;
+	char material[64];
 };
 
 class Mesh
 {
 public:
-	Mesh(std::vector<Vertex>* vertexList, std::vector<unsigned>* indexList, std::vector<MeshGroup> pmeshGroups, std::map<std::string, Material> pmaterialMap);
+	Mesh(VertexIndexData* vert_ind_data, std::vector<MeshGroup> pmeshGroups, std::map<std::string, Material> pmaterialMap);
 	~Mesh();
 
 	void Apply();
