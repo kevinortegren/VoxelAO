@@ -1,6 +1,7 @@
 #pragma once
 
 #include <D3D11.h>
+#include "Types.h"
 
 class RenderTarget
 {
@@ -8,9 +9,9 @@ public:
 	RenderTarget();
 	~RenderTarget();
 
-	void CreateRenderTarget(unsigned width, unsigned height, DXGI_FORMAT format);
+	void CreateRenderTarget(uint32 width, uint32 height, DXGI_FORMAT format);
 	ID3D11RenderTargetView* GetRenderTargetView();
-	void PSSetSRV(unsigned slot);
+	void PSSetSRV(uint32 slot);
 	void Clear();
 private:
 

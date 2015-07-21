@@ -13,16 +13,14 @@ solution "VoxelAO"
 		flags { "Optimize"}
 		targetdir "bin/x86/"
 		
-	
-	
 	project "VoxelAO"
 		kind "ConsoleApp"
 		language "C++"
 		files { "VoxelAO/**.h", "VoxelAO/**.cpp" }
 		includedirs { "SDL/include/", "DirectXTK/include/" }
 		configuration { "x32", "Debug" }
-			links { "SDL/lib/x86/SDL2", "SDL/lib/x86/SDL2_image", "DirectXTK/lib/Debug/DirectXTK" }
+			links { "SDL/lib/x86/SDL2", "DirectXTK/lib/Debug/DirectXTK" }
 			objdir "build/VoxelAO/obj/"
 		configuration { "x32", "Release" }
-			links { "SDL/lib/x86/SDL2", "SDL/lib/x86/SDL2_image", "DirectXTK/lib/Release/DirectXTK" }
+			links { "SDL/lib/x86/SDL2", "DirectXTK/lib/Release/DirectXTK" }
 			objdir "build/VoxelAO/obj/"

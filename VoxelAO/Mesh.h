@@ -6,12 +6,12 @@
 #include "Texture.h"
 #include <map>
 #include <string>
-
+#include "Types.h"
 
 struct VertexIndexData
 {
 	std::vector<Vertex> vertexData;
-	std::vector<uint32_t> indexData;
+	std::vector<uint32> indexData;
 };
 
 struct Material
@@ -45,10 +45,10 @@ private:
 	ID3D11Buffer* vertexBuffer;
 	ID3D11Buffer* indexBuffer;
 
-	unsigned numVertices;
-	unsigned numIndices;
-	unsigned offset;
-	unsigned stride;
+	uint32 numVertices;
+	uint32 numIndices;
+	uint32 offset;
+	uint32 stride;
 
 	std::vector<MeshGroup> meshGroups;
 	std::map<std::string, Material> materialMap;

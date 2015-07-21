@@ -56,7 +56,7 @@ void main(triangle VS_Output input[3], inout TriangleStream<GS_Output> outputStr
 	float2 side1N = normalize(output[2].position.xy - output[1].position.xy);
 	float2 side2N = normalize(output[0].position.xy - output[2].position.xy);
 
-	const float texelSize = 1.0f / 1024.0f; 
+	const float texelSize = 1.0f / VOXELSIZE; 
 	output[0].position.xy += normalize(-side0N + side2N) * texelSize;
 	output[1].position.xy += normalize(side0N - side1N) * texelSize;
 	output[2].position.xy += normalize(side1N - side2N) * texelSize;

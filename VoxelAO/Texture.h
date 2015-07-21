@@ -1,8 +1,8 @@
 #pragma once
 
 #include <SDL.h>
-#include <SDL_image.h>
 #include <D3D11.h>
+#include "Types.h"
 
 class Texture
 {
@@ -11,8 +11,8 @@ public:
 	~Texture();
 
 	void CreateTextureFromFile(const char* file);
-	void PSSetSRV(unsigned slot);
-	void CreateRenderTarget(unsigned width, unsigned height, DXGI_FORMAT format);
+	void PSSetSRV(uint32 slot);
+	void CreateRenderTarget(uint32 width, uint32 height, DXGI_FORMAT format);
 
 	ID3D11ShaderResourceView* GetRSV();
 

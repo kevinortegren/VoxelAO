@@ -1,5 +1,7 @@
 #pragma once
 #include <SimpleMath.h>
+#include "Types.h"
+
 using namespace DirectX::SimpleMath;
 
 struct CameraData

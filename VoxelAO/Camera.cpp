@@ -1,7 +1,7 @@
 #include "Camera.h"
 
 Camera::Camera()
-	: up(Vector3(0, 1, 0)), right(Vector3(1, 0, 0)), facing(Vector3(0, 0, 1)), position(Vector3(0, 100, 0)), camSpeed(300.0f)
+	: up(Vector3(0, 1, 0)), right(Vector3(0, 0, 1)), facing(Vector3(-1, 0, 0)), position(Vector3(800, 400, 0)), camSpeed(300.0f)
 {}
 
 Camera::~Camera()

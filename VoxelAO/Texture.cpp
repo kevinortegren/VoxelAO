@@ -69,7 +69,7 @@ void Texture::CreateTextureFromFile(const char* file)
 	SDL_FreeSurface(image);*/
 }
 
-void Texture::PSSetSRV(unsigned slot)
+void Texture::PSSetSRV(uint32 slot)
 {
 	context->PSSetShaderResources(slot, 1, &textureRSV);
 }

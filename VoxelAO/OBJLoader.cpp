@@ -31,29 +31,29 @@ std::unique_ptr<Mesh> OBJLoader::LoadBIN(const char* file)
 
 	if (binFile.is_open())
 	{
-		uint32_t vertexCount = 0;
-		uint32_t indexCount = 0;
+		uint32 vertexCount = 0;
+		uint32 indexCount = 0;
 
-		binFile.read((char*)&vertexCount, sizeof(uint32_t));
-		binFile.read((char*)&indexCount, sizeof(uint32_t));
+		binFile.read((char*)&vertexCount, sizeof(uint32));
+		binFile.read((char*)&indexCount, sizeof(uint32));
 
 		data.vertexData.resize(vertexCount);
 		data.indexData.resize(indexCount);
 
 		binFile.read((char*)&data.vertexData[0], vertexCount * sizeof(Vertex));
-		binFile.read((char*)&data.indexData[0], indexCount * sizeof(uint32_t));
+		binFile.read((char*)&data.indexData[0], indexCount * sizeof(uint32));
 
-		uint32_t groupCount = 0;
+		uint32 groupCount = 0;
 
-		binFile.read((char*)&groupCount, sizeof(uint32_t));
+		binFile.read((char*)&groupCount, sizeof(uint32));
 
 		meshGroups.resize(groupCount);
 
 		binFile.read((char*)&meshGroups[0], groupCount * sizeof(MeshGroup));
 
 		//read materials
-		uint32_t materialCount = 0;
-		binFile.read((char*)&materialCount, sizeof(uint32_t));
+		uint32 materialCount = 0;
+		binFile.read((char*)&materialCount, sizeof(uint32));
 
 		matMap.resize(materialCount);
 

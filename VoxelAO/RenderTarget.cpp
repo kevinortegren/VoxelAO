@@ -16,7 +16,7 @@ RenderTarget::~RenderTarget()
 	renderSRV->Release();
 }
 
-void RenderTarget::CreateRenderTarget(unsigned width, unsigned height, DXGI_FORMAT format)
+void RenderTarget::CreateRenderTarget(uint32 width, uint32 height, DXGI_FORMAT format)
 {
 	HRESULT result;
 
@@ -63,7 +63,7 @@ void RenderTarget::Clear()
 	context->ClearRenderTargetView(renderTargetView, clearColor);
 }
 
-void RenderTarget::PSSetSRV(unsigned slot)
+void RenderTarget::PSSetSRV(uint32 slot)
 {
 	context->PSSetShaderResources(slot, 1, &renderSRV);
 }

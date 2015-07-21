@@ -37,7 +37,7 @@ Mesh::Mesh(VertexIndexData* vert_ind_data, std::vector<MeshGroup> pmeshGroups, s
 	//Vertex buffer descriptor
 	ZeroMemory(&bufferDesc, sizeof(bufferDesc));
 	bufferDesc.Usage = D3D11_USAGE_IMMUTABLE;
-	bufferDesc.ByteWidth = sizeof(unsigned) * numIndices;
+	bufferDesc.ByteWidth = sizeof(uint32) * numIndices;
 	bufferDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
 
 	//Vertex init data
