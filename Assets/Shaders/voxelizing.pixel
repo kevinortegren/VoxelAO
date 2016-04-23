@@ -6,22 +6,30 @@ struct GS_Output
 	float3 positionWS: WORLD_POS;
 };
 
+cbuffer VoxelOptions : register(b1)
+{
+	int voxelCount;
+	float voxelWidth;
+	int pad;
+	int pad1;
+}
+
 void main(GS_Output input) 
 {
 	// get offset into the voxel-grid
-	float3 offset = input.positionWS / VOXELWIDTH;
+	float3 offset = input.positionWS / voxelWidth;
 
 	offset = floor(offset);
 
 	// get position in the voxel-grid
-	int3 voxelPos = int3(VOXELSIZE/2, VOXELSIZE/2, VOXELSIZE/2) + int3(offset.x, offset.y, offset.z);
+	int3 voxelPos = int3(voxelCount/2, voxelCount/2, voxelCount/2) + int3(offset.x, offset.y, offset.z);
 
-	if((voxelPos.x > -1) && (voxelPos.x < VOXELSIZE) && (voxelPos.y > -1) && (voxelPos.y < VOXELSIZE) && (voxelPos.z > -1) && (voxelPos.z < VOXELSIZE))
+	if((voxelPos.x > -1) && (voxelPos.x < voxelCount) && (voxelPos.y > -1) && (voxelPos.y < voxelCount) && (voxelPos.z > -1) && (voxelPos.z < voxelCount))
 	{
 		uint voxel_z = uint(voxelPos.z) / 32;
 	
 		// get index into the voxel-grid
-		uint gridIndex = (voxelPos.x + VOXELSIZE * voxelPos.y + VOXELSIZE * VOXELSIZE * voxel_z) * 4;
+		uint gridIndex = (voxelPos.x + voxelCount * voxelPos.y + voxelCount * voxelCount * voxel_z) * 4;
 
 		uint bit_position = uint(voxelPos.z) % 32;
 		uint bit_mask = 1;

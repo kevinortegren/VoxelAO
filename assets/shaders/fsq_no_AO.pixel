@@ -1,0 +1,8 @@
+Texture2D<float4> diffuse : register(t0);
+
+float4 main(float4 position : SV_POSITION) : SV_TARGET
+{
+	int3 screenPos = int3(position.xy, 0);
+	float4 diff = diffuse.Load(screenPos);
+	return diff;
+}

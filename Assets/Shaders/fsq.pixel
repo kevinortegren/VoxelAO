@@ -1,7 +1,23 @@
 cbuffer sampleKernel : register(b0)
 {
-	float4 sampleKernel[KERNEL_SIZEX * KERNEL_SIZEY];
+	float4 sampleKernel[32 * 32];
 };
+
+cbuffer KernelOptions : register(b1)
+{
+	int kernelSizeX;
+	int kernelSizeY;
+	int kernelSteps;
+	float kernelLength;
+}
+
+cbuffer VoxelOptions : register(b2)
+{
+	int voxelCount;
+	float voxelWidth;
+	int pad;
+	int pad1;
+}
 
 Texture2D<float4> diffuse : register(t0);
 Texture2D<float4> normal : register(t1);
@@ -37,16 +53,16 @@ float4 main(float4 position : SV_POSITION) : SV_TARGET
 	float4 norm = normal.Load(screenPos);
 	float4 pos = wpos.Load(screenPos);
 
-	const int steps = KERNEL_STEPS;
-	const float rmax = KERNEL_LENGTH;
+	const int steps = kernelSteps;
+	const float rmax = kernelLength;
 	const float step_length = rmax / float(steps);
-	const float guard = ((VOXELWIDTH + 1.0f) * (sqrt(3.0f) / 2.0f));
+	const float guard = ((voxelWidth + 1.0f) * (sqrt(3.0f) / 2.0f));
 	
 	const float3x3 tbn = build_ortho_basis(normalize(norm.xyz));
 	 
 	float ambient_factor = 0.0f;
 
-	for(int i = 0; i < KERNEL_SIZEX * KERNEL_SIZEY; ++i)
+	for(int i = 0; i < kernelSizeX * kernelSizeY; ++i)
 	{
 		float3 raydir = normalize(mul(sampleKernel[i].xyz, tbn));
 		float d = (guard / dot(raydir, norm.xyz));
@@ -56,17 +72,17 @@ float4 main(float4 position : SV_POSITION) : SV_TARGET
 
 		while(d < rmax)
 		{
-			float3 offset = d0 / VOXELWIDTH;
+			float3 offset = d0 / voxelWidth;
 
 			offset = floor(offset);
 
 			// get position in the voxel-grid
-			int3 voxelPos = int3(VOXELSIZE/2, VOXELSIZE/2, VOXELSIZE/2) + int3(offset.x, offset.y, offset.z);
+			int3 voxelPos = int3(voxelCount/2, voxelCount/2, voxelCount/2) + int3(offset.x, offset.y, offset.z);
 
 			uint voxel_z = uint(voxelPos.z) / 32;
 	
 			// get index into the voxel-grid
-			uint gridIndex = (voxelPos.x + VOXELSIZE * voxelPos.y + VOXELSIZE * VOXELSIZE * voxel_z) * 4;
+			uint gridIndex = (voxelPos.x + voxelCount * voxelPos.y + voxelCount * voxelCount * voxel_z) * 4;
 
 			uint bit_position = uint(voxelPos.z) % 32;
 			uint voxel_chunk = gridBuffer.Load(gridIndex);
@@ -88,7 +104,7 @@ float4 main(float4 position : SV_POSITION) : SV_TARGET
 		ambient_factor += hitDist / rmax;
 	}
 	
-	ambient_factor /= KERNEL_SIZEX * KERNEL_SIZEY; //Average factor
+	ambient_factor /= kernelSizeX * kernelSizeY; //Average factor
 	ambient_factor =  1.0f - saturate(ambient_factor);
 
 	return diff*float4(ambient_factor,ambient_factor,ambient_factor,1);

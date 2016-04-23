@@ -3,6 +3,14 @@ cbuffer voxelMats : register(b0)
 	matrix gridViewProjMatrices[3];
 };
 
+cbuffer VoxelOptions : register(b1)
+{
+	int voxelCount;
+	float voxelWidth;
+	int pad;
+	int pad1;
+}
+
 struct VS_Output
 {
 	float3 pos : POSITION;
@@ -56,7 +64,7 @@ void main(triangle VS_Output input[3], inout TriangleStream<GS_Output> outputStr
 	float2 side1N = normalize(output[2].position.xy - output[1].position.xy);
 	float2 side2N = normalize(output[0].position.xy - output[2].position.xy);
 
-	const float texelSize = 1.0f / VOXELSIZE; 
+	const float texelSize = 1.0f / voxelCount; 
 	output[0].position.xy += normalize(-side0N + side2N) * texelSize;
 	output[1].position.xy += normalize(side0N - side1N) * texelSize;
 	output[2].position.xy += normalize(side1N - side2N) * texelSize;
